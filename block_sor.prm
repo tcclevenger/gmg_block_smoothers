@@ -1,0 +1,42 @@
+# Refinment Type: global|adaptive
+set ref type        = global
+
+# Number of initial refinements
+set initial ref     = 1
+
+# Epsilon
+set epsilon         = 0.0005 #{0.5 | 0.05 | 0.005}
+
+# Finite Element degree
+set fe degree       =  3 #{1 | 2 | 3}
+
+# Smoother Type: gmg|direct
+set solver type     = direct
+
+# Smoother Type: sor|jacobi|block_sor|block_jacobi
+set smoother type   = block_sor
+
+# Overwrite number of smoothing steps and damping parameter: true|false
+set overwrite smoothing and damping = false
+# Number of smoothing steps
+set smoothing steps = 2
+# Relaxation parameter
+set relaxation    = 0.25
+
+# Dof renumbering: no|random|downstream|upstream
+set dof renumbering  = downstream
+
+# With streamline diffusion: true|false
+set with sd         = false
+
+# Full boundary Dirichlet: true|false
+set full boundary   = true
+
+# Number of cycles
+set number of cycles = 3
+
+# Number of timings
+set number of timings = 0
+
+# Output: true|false
+set output          = true
