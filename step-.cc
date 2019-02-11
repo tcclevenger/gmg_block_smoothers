@@ -14,7 +14,8 @@
  * ---------------------------------------------------------------------
 
  *
- * Author: Wolfgang Bangerth, University of Heidelberg, 2000
+ * Author: Thomas Clevenger, Clemson University
+ *         Timo Heister, University of Utah
  */
 
 #include <deal.II/base/work_stream.h>
@@ -25,6 +26,7 @@
 #include <deal.II/base/logstream.h>
 #include <deal.II/base/timer.h>
 #include <deal.II/base/parameter_handler.h>
+#include <deal.II/base/path_search.h>
 #include <deal.II/lac/vector.h>
 #include <deal.II/lac/full_matrix.h>
 #include <deal.II/lac/sparse_matrix.h>
@@ -145,9 +147,16 @@ Settings::try_parse(const std::string &prm_filename)
     {
         prm.parse_input(prm_filename);
     }
-    catch (...)
+    catch (const dealii::PathSearch::ExcFileNotFound &)
     {
-        prm.print_parameters(std::cout, ParameterHandler::Text);
+      if (prm_filename.size()>0)
+	std::cerr << "ERRROR: could not open the .prm file '"
+		  << prm_filename << "'" << std::endl;
+      else
+	std::cerr << "Usage: please pass a .prm file as the first argument"
+		  << std::endl;
+
+      prm.print_parameters(std::cout, ParameterHandler::Text);
         return false;
     }
     this->fe_degree = prm.get_integer("fe degree");
@@ -1161,8 +1170,6 @@ int main (int argc, char *argv[])
         Step100::Settings settings;
         if (!settings.try_parse((argc>1) ? (argv[1]) : ""))
             return 0;
-
-        //dealii::deallog.depth_console(10);
 
         Step100::AdvectionProblem<2> advection_problem_2d(settings);
         advection_problem_2d.run ();
