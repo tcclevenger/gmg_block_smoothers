@@ -3,3 +3,7 @@
 /Makefile
 /CMakeCache.txt
 /step-
+*.vtu
+*.cbp
+/step-50-mesh_loop.cc
+/CMakeLists.txt.user
