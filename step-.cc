@@ -537,6 +537,8 @@ private:
     void
     assemble_system_and_multigrid();
 
+    std::shared_ptr<MGSmoother<Vector<double>>> create_smoother ();
+
     void solve ();
     void refine_grid ();
     void output_results (const unsigned int cycle) const;
@@ -873,48 +875,27 @@ AdvectionProblem<dim>::assemble_system_and_multigrid()
 }
 
 
-
 template <int dim>
-void AdvectionProblem<dim>::solve ()
+std::shared_ptr<MGSmoother<Vector<double>>>
+AdvectionProblem<dim>::create_smoother ()
 {
-    Timer time;
-
-    double solve_tol = 1e-8*system_rhs.l2_norm();
-    unsigned int max_iters = 200;
-    SolverControl solver_control (max_iters, solve_tol, true, true);
-    solver_control.enable_history_data();
-
-
-
-    typedef MGTransferPrebuilt<Vector<double> > Transfer;
-    Transfer mg_transfer(mg_constrained_dofs);
-    mg_transfer.build_matrices(dof_handler);
-
-    FullMatrix<double> coarse_matrix;
-    coarse_matrix.copy_from (mg_matrices[0]);
-    MGCoarseGridHouseholder<double, Vector<double> > coarse_grid_solver;
-    coarse_grid_solver.initialize (coarse_matrix);
-
-    MGSmoother<Vector<double> > *mg_smoother = NULL;
+    
     if (settings.smoother_type == "sor")
     {
         typedef PreconditionSOR<SparseMatrix<double> > Smoother;
-
-        auto *smoother =
-                new MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >();
-
-        smoother->initialize(mg_matrices,Smoother::AdditionalData(fe.degree == 1 ? 1.0 : 0.75));
+		
+        auto smoother = std::make_shared<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
+	smoother->initialize(mg_matrices,Smoother::AdditionalData(fe.degree == 1 ? 1.0 : 0.75));
         smoother->set_steps(2);
-        mg_smoother = smoother;
+	return smoother;
     }
     else if (settings.smoother_type == "jacobi")
     {
         typedef PreconditionJacobi<SparseMatrix<double> > Smoother;
-        auto *smoother =
-                new MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >();
+        auto smoother = std::make_shared<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
         smoother->initialize(mg_matrices, Smoother::AdditionalData(fe.degree == 1 ? 0.6667 : 0.47));
         smoother->set_steps(4);
-        mg_smoother = smoother;
+        return smoother;
     }
     else if (settings.smoother_type == "block sor")
     {
@@ -956,11 +937,11 @@ void AdvectionProblem<dim>::solve ()
             }
         }
 
-        auto *smoother =
-                new MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >();
+	auto smoother = std::make_shared<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
+	
         smoother->initialize(mg_matrices, smoother_data);
         smoother->set_steps(1);
-        mg_smoother = smoother;
+        return smoother;
     }
     else if (settings.smoother_type == "block jacobi")
     {
@@ -1002,12 +983,38 @@ void AdvectionProblem<dim>::solve ()
             }
         }
 
-        auto *smoother =
-                new MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >();
+	auto smoother = std::make_shared<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
         smoother->initialize(mg_matrices, smoother_data);
         smoother->set_steps(2);
-        mg_smoother = smoother;
+        return smoother;
     }
+    else
+      AssertThrow(false, ExcNotImplemented());
+}
+
+  
+template <int dim>
+void AdvectionProblem<dim>::solve ()
+{
+    Timer time;
+
+    double solve_tol = 1e-8*system_rhs.l2_norm();
+    unsigned int max_iters = 200;
+    SolverControl solver_control (max_iters, solve_tol, true, true);
+    solver_control.enable_history_data();
+
+
+
+    typedef MGTransferPrebuilt<Vector<double> > Transfer;
+    Transfer mg_transfer(mg_constrained_dofs);
+    mg_transfer.build_matrices(dof_handler);
+
+    FullMatrix<double> coarse_matrix;
+    coarse_matrix.copy_from (mg_matrices[0]);
+    MGCoarseGridHouseholder<double, Vector<double> > coarse_grid_solver;
+    coarse_grid_solver.initialize (coarse_matrix);
+
+    std::shared_ptr<MGSmoother<Vector<double>>> mg_smoother = create_smoother();
 
     mg::Matrix<Vector<double> > mg_matrix(mg_matrices);
     mg::Matrix<Vector<double> > mg_interface_matrix_in(mg_interface_in);
@@ -1037,8 +1044,6 @@ void AdvectionProblem<dim>::solve ()
               << " seconds " << std::endl;
 
     constraints.distribute (solution);
-
-    mg_smoother->clear();
 }
 
 
