@@ -524,7 +524,6 @@ class AdvectionProblem
 {
 public:
     AdvectionProblem (Settings settings);
-    ~AdvectionProblem ();
     void run ();
 
 private:
@@ -573,9 +572,6 @@ private:
 
 
 
-
-
-
 template <int dim>
 AdvectionProblem<dim>::AdvectionProblem (Settings settings)
     :
@@ -587,13 +583,6 @@ AdvectionProblem<dim>::AdvectionProblem (Settings settings)
       settings(settings)
 {}
 
-
-
-template <int dim>
-AdvectionProblem<dim>::~AdvectionProblem ()
-{
-    dof_handler.clear ();
-}
 
 
 
