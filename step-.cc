@@ -478,7 +478,7 @@ BoundaryValues<dim>::value (const Point<dim>   &p,
     {
         return 0.0;
     }
-    else if (std::fabs(p[0]-1)<1e-8
+    else if (std::fabs(p[0]-1)<1e-8 // TODO: document
              ||
              (p[1]<0.999 && p[1]>=-std::sqrt(3)*(p[0]-0.5)-1))
     {
@@ -513,7 +513,7 @@ double delta_value (const double hk,
 {
     double Peclet = dir.norm()*hk/(2.0*eps*pk);
     double coth = (1.0+std::exp(-2.0*Peclet))/(1.0-std::exp(-2.0*Peclet));
-    //std::cosh(Peclet)/std::sinh(Peclet);
+    //std::cosh(Peclet)/std::sinh(Peclet); // TODO: what is this?
 
     return hk/(2.0*dir.norm()*pk)*(coth - 1.0/Peclet);
 }
@@ -1065,8 +1065,6 @@ void AdvectionProblem<dim>::output_results (const unsigned int cycle) const
     data_out.attach_dof_handler (dof_handler);
     data_out.add_data_vector (solution, "solution");
 
-
-
     Vector<double> cell_indices (triangulation.n_active_cells());
     if (settings.dof_renum == "downstream")
     {
@@ -1104,7 +1102,6 @@ void AdvectionProblem<dim>::output_results (const unsigned int cycle) const
             cell_indices(ordered_indices[i]) = i;
     }
     data_out.add_data_vector (cell_indices, "cell_indx");
-
 
     data_out.build_patches ();
     {
