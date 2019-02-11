@@ -1024,7 +1024,7 @@ void AdvectionProblem<dim>::solve ()
             preconditioner(dof_handler, mg, mg_transfer);
 
 
-    std::cout << "     Solving with GMRES tol " << solve_tol << "..." << std::endl;
+    std::cout << "     Solving with GMRES to tol " << solve_tol << "..." << std::endl;
     SolverGMRES<>    solver (solver_control);
 
     time.restart();
@@ -1032,16 +1032,13 @@ void AdvectionProblem<dim>::solve ()
                   preconditioner);
     time.stop();
 
-    std::cout << "     GMRES Solver: " << time.last_wall_time()
-              << " seconds " << std::endl
-              << "          converged in " << solver_control.last_step() << " iterations" << std::endl;
+    std::cout << "          converged in " << solver_control.last_step() << " iterations"
+	      << " in " << time.last_wall_time()
+              << " seconds " << std::endl;
 
     constraints.distribute (solution);
 
     mg_smoother->clear();
-
-
-    return;
 }
 
 
