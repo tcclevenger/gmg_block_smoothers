@@ -82,6 +82,7 @@ namespace Step100
 using namespace dealii;
 
 
+
 template <int dim>
 struct ScratchData
 {
@@ -123,6 +124,7 @@ struct Settings
     bool with_sd;
     bool output;
 };
+
 bool
 Settings::try_parse(const std::string &prm_filename)
 {
@@ -135,8 +137,8 @@ Settings::try_parse(const std::string &prm_filename)
                       Patterns::Selection("sor|jacobi|block sor|block jacobi"),
                       "Smoother Type: sor|jacobi|block sor|block jacobi");
     prm.declare_entry("dof renumbering", "downstream",
-                      Patterns::Selection("no|random|downstream|upstream"),
-                      "Dof renumbering: no|random|downstream|upstream");
+                      Patterns::Selection("none|random|downstream|upstream"),
+                      "Dof renumbering: none|random|downstream|upstream");
     prm.declare_entry("with sd", "true",
                       Patterns::Bool(),
                       "With streamline diffusion: true|false");
@@ -150,14 +152,14 @@ Settings::try_parse(const std::string &prm_filename)
     }
     catch (const dealii::PathSearch::ExcFileNotFound &)
     {
-      if (prm_filename.size()>0)
-	std::cerr << "ERRROR: could not open the .prm file '"
-		  << prm_filename << "'" << std::endl;
-      else
-	std::cerr << "Usage: please pass a .prm file as the first argument"
-		  << std::endl;
+        if (prm_filename.size()>0)
+            std::cerr << "ERRROR: could not open the .prm file '"
+                      << prm_filename << "'" << std::endl;
+        else
+            std::cerr << "Usage: please pass a .prm file as the first argument"
+                      << std::endl;
 
-      prm.print_parameters(std::cout, ParameterHandler::Text);
+        prm.print_parameters(std::cout, ParameterHandler::Text);
         return false;
     }
     this->fe_degree = prm.get_integer("fe degree");
@@ -320,89 +322,6 @@ create_random_order (const DoFHandler<dim> &dof)
 }
 
 
-template <int dim>
-class Epsilon : public Function<dim>
-{
-public:
-    Epsilon () : Function<dim>() {}
-
-    virtual double value (const Point<dim>   &p,
-                          const unsigned int  component = 0) const;
-    virtual void value_list (const std::vector<Point<dim> > &points,
-                             std::vector<double>            &values,
-                             const unsigned int              component = 0) const;
-};
-template <int dim>
-double Epsilon<dim>::value (const Point<dim> &p,
-                            const unsigned int) const
-{
-    (void)p;
-    return 0.005;
-}
-template <int dim>
-void Epsilon<dim>::value_list (const std::vector<Point<dim> > &points,
-                               std::vector<double>            &values,
-                               const unsigned int              component) const
-{
-    (void)component;
-    const unsigned int n_points = points.size();
-    Assert (values.size() == n_points,
-            ExcDimensionMismatch (values.size(), n_points));
-    Assert (component == 0,
-            ExcIndexRange (component, 0, 1));
-    for (unsigned int i=0; i<n_points; ++i)
-        values[i] = Epsilon<dim>::value (points[i]);
-}
-
-
-
-
-template <int dim>
-class AdvectionField : public TensorFunction<1,dim>
-{
-public:
-    AdvectionField () : TensorFunction<1,dim> () {}
-
-    virtual Tensor<1,dim> value (const Point<dim> &p) const;
-
-    virtual void value_list (const std::vector<Point<dim> > &points,
-                             std::vector<Tensor<1,dim> >    &values) const;
-
-    DeclException2 (ExcDimensionMismatch,
-                    unsigned int, unsigned int,
-                    << "The vector has size " << arg1 << " but should have "
-                    << arg2 << " elements.");
-};
-template <int dim>
-Tensor<1,dim>
-AdvectionField<dim>::value (const Point<dim> &p) const
-{
-    (void)p;
-    Point<dim> value;
-
-    value[0] = -1.0*std::sin(numbers::PI/6.0);
-    if (dim > 1)
-    {
-        value[1] = std::cos(numbers::PI/6.0);
-        if (dim > 2)
-            value[2] = 1.0;
-    }
-
-    return value;
-}
-template <int dim>
-void
-AdvectionField<dim>::value_list (const std::vector<Point<dim> > &points,
-                                 std::vector<Tensor<1,dim> >    &values) const
-{
-    Assert (values.size() == points.size(),
-            ExcDimensionMismatch (values.size(), points.size()));
-
-    for (unsigned int i=0; i<points.size(); ++i)
-        values[i] = AdvectionField<dim>::value (points[i]);
-}
-
-
 
 
 template <int dim>
@@ -512,6 +431,7 @@ double delta_value (const double hk,
                     const Tensor<1,dim> dir,
                     const double pk)
 {
+    // TODO: add citation for this?
     double Peclet = dir.norm()*hk/(2.0*eps*pk);
     double coth = (1.0+std::exp(-2.0*Peclet))/(1.0-std::exp(-2.0*Peclet));
 
@@ -565,11 +485,11 @@ private:
     MGLevelObject<SparseMatrix<double> > mg_interface_in;
     MGLevelObject<SparseMatrix<double> > mg_interface_out;
 
-    MGLevelObject<AffineConstraints<double>> mg_constraints;
-
     MGConstrainedDoFs                    mg_constrained_dofs;
 
     Settings settings;
+    const double epsilon;
+    Tensor<1,dim> advection_dir;
 };
 
 
@@ -582,8 +502,18 @@ AdvectionProblem<dim>::AdvectionProblem (Settings settings)
       fe(settings.fe_degree),
       mapping(settings.fe_degree),
       quad_degree (2*fe.degree+2),
-      settings(settings)
-{}
+      settings(settings),
+      epsilon(0.005)
+{
+    // Set Advection direction
+    advection_dir[0] = -std::sin(numbers::PI/6.0);
+    if (dim > 1)
+    {
+        advection_dir[1] = std::cos(numbers::PI/6.0);
+        if (dim > 2)
+            advection_dir[2] = std::sin(numbers::PI/6.0);
+    }
+}
 
 
 
@@ -591,25 +521,13 @@ AdvectionProblem<dim>::AdvectionProblem (Settings settings)
 template <int dim>
 void AdvectionProblem<dim>::setup_system ()
 {
+    const unsigned int n_levels = triangulation.n_levels();
+
     dof_handler.distribute_dofs (fe);
 
-    // Could renumber, but doesn't matter
-//    if (settings.dof_renum == "random")
-//    {
-//        if (settings.smoother_type =="sor" ||
-//                settings.smoother_type =="jacobi")
-//            Assert(false,ExcMessage("Random renumbering for point-smoothers not yet implemented."));
-//    }
-//    else if (settings.dof_renum == "downstream")
-//    {
-//        const AdvectionField<dim> w;
-//        DoFRenumbering::downstream(dof_handler,w.value(Point<dim>()));
-//    }
-//    else if (settings.dof_renum == "upstream")
-//    {
-//        const AdvectionField<dim> w;
-//        DoFRenumbering::downstream(dof_handler,-1.0*w.value(Point<dim>()));
-//    }
+    // We could renumber the active dofs with DoFRenumbering::downstream()
+    // here, but the smoothers only act on multigrid levels and as such, this
+    // won't matter.
 
     solution.reinit (dof_handler.n_dofs());
     system_rhs.reinit (dof_handler.n_dofs());
@@ -642,36 +560,38 @@ void AdvectionProblem<dim>::setup_system ()
     // Setup GMG DoFs
     dof_handler.distribute_mg_dofs ();
 
-    for (unsigned int level=0; level < triangulation.n_levels(); ++level)
+    // Renumber DoFs on each level in downstream or upstream direction if
+    // needed. This is only necessary for point smoothers (SOR and Jacobi) as
+    // the block smoothers operate on cells (see create_smoother()):
+    if (settings.smoother_type == "sor" || settings.smoother_type == "jacobi")
     {
-        if (settings.dof_renum == "random")
+        if (settings.dof_renum == "downstream" || settings.dof_renum == "upstream")
         {
-            if (settings.smoother_type =="sor" ||
-                    settings.smoother_type =="jacobi")
-                Assert(false,ExcMessage("Random renumbering for point-smoothers not yet implemented."));
-        }
-        else if (settings.dof_renum == "downstream")
-        {
-            const AdvectionField<dim> w;
-            DoFRenumbering::downstream(dof_handler,level,w.value(Point<dim>()));
-        }
-        else if (settings.dof_renum == "upstream")
-        {
-            const AdvectionField<dim> w;
-            DoFRenumbering::downstream(dof_handler,level,-1.0*w.value(Point<dim>()));
-        }
-    }
+            const Tensor<1,dim> dir =
+                    (settings.dof_renum == "upstream" ? -1.0 : 1.0) * advection_dir;
 
+            for (unsigned int level=0; level < n_levels; ++level)
+                DoFRenumbering::downstream(dof_handler,
+                                           level,
+                                           dir,
+                                           /*dof_wise_renumbering = */ false);
+        }
+        else if (settings.dof_renum == "random")
+        {
+            for (unsigned int level=0; level < n_levels; ++level)
+                DoFRenumbering::random(dof_handler,
+                                       level);
+            //Assert(false, ExcMessage("Random renumbering for point-smoothers not yet implemented."));
+        }
+        else
+            Assert(false, ExcNotImplemented());
+    }
+    
     mg_constrained_dofs.clear();
     mg_constrained_dofs.initialize(dof_handler);
 
-    std::set<types::boundary_id>  dirichlet_boundary_ids;
-    dirichlet_boundary_ids.insert(0);
-    dirichlet_boundary_ids.insert(1);
-
+    std::set<types::boundary_id>  dirichlet_boundary_ids = {0,1};
     mg_constrained_dofs.make_zero_boundary_constraints(dof_handler, dirichlet_boundary_ids);
-
-    const unsigned int n_levels = triangulation.n_levels();
 
     mg_matrices.resize(0, n_levels-1);
     mg_matrices.clear_elements ();
@@ -727,28 +647,18 @@ AdvectionProblem<dim>::assemble_cell(const IteratorType &cell,
 
     scratch_data.fe_values.reinit(cell);
 
-    Epsilon<dim>          epsilon;
-    const AdvectionField<dim>   advection_field;
     const RightHandSide<dim>    right_hand_side;
-
-    std::vector<double>         eps (n_q_points);
     std::vector<double>         rhs_values (n_q_points);
-    std::vector<Tensor<1,dim> > advection_directions (n_q_points);
 
-    epsilon.value_list (scratch_data.fe_values.get_quadrature_points(),
-                        eps);
-    advection_field.value_list (scratch_data.fe_values.get_quadrature_points(),
-                                advection_directions);
     right_hand_side.value_list (scratch_data.fe_values.get_quadrature_points(),
                                 rhs_values);
 
-    double delta = 0.0;
-    if (settings.with_sd)
-        delta = delta_value(cell->diameter(),
-                            epsilon.value(cell->center()),
-                            advection_field.value(cell->center()),
-                            settings.fe_degree);
-
+    const double delta =
+            settings.with_sd ? (delta_value(cell->diameter(),
+                                            epsilon,
+                                            advection_dir,
+                                            settings.fe_degree))
+                             : 0.0;
 
     for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
         for (unsigned int i = 0; i < dofs_per_cell; ++i)
@@ -756,23 +666,23 @@ AdvectionProblem<dim>::assemble_cell(const IteratorType &cell,
             for (unsigned int j = 0; j < dofs_per_cell; ++j)
             {
                 copy_data.cell_matrix(i, j) +=
-                        (eps[q_point] *
+                        (epsilon*
                          scratch_data.fe_values.shape_grad(j, q_point) *
                          scratch_data.fe_values.shape_grad(i, q_point) *
                          scratch_data.fe_values.JxW(q_point))
                         +
-                        ((advection_directions[q_point]*scratch_data.fe_values.shape_grad(j,q_point))*
+                        ((advection_dir*scratch_data.fe_values.shape_grad(j,q_point))*
                          scratch_data.fe_values.shape_value(i,q_point))
                         *scratch_data.fe_values.JxW(q_point);
 
                 if (settings.with_sd)
                     copy_data.cell_matrix(i,j) += delta*
-                            (advection_directions[q_point]*scratch_data.fe_values.shape_grad(j,q_point))*
-                            (advection_directions[q_point]*scratch_data.fe_values.shape_grad(i,q_point))
+                            (advection_dir*scratch_data.fe_values.shape_grad(j,q_point))*
+                            (advection_dir*scratch_data.fe_values.shape_grad(i,q_point))
                             * scratch_data.fe_values.JxW(q_point)
-                            +
-                            -1.0*delta*eps[q_point]*trace(scratch_data.fe_values.shape_hessian(j,q_point))*
-                            (advection_directions[q_point]*scratch_data.fe_values.shape_grad(i,q_point))
+                            -
+                            delta*epsilon*trace(scratch_data.fe_values.shape_hessian(j,q_point))*
+                            (advection_dir*scratch_data.fe_values.shape_grad(i,q_point))
                             * scratch_data.fe_values.JxW(q_point);
             }
             if (!cell->is_level_cell())
@@ -783,7 +693,7 @@ AdvectionProblem<dim>::assemble_cell(const IteratorType &cell,
                 if (settings.with_sd)
                     copy_data.cell_rhs(i) += delta*
                             rhs_values[q_point]*
-                            advection_directions[q_point]*scratch_data.fe_values.shape_grad(i,q_point)
+                            advection_dir*scratch_data.fe_values.shape_grad(i,q_point)
                             *scratch_data.fe_values.JxW (q_point);
             }
         }
@@ -884,11 +794,11 @@ AdvectionProblem<dim>::create_smoother ()
     if (settings.smoother_type == "sor")
     {
         typedef PreconditionSOR<SparseMatrix<double> > Smoother;
-		
+
         auto smoother = std_cxx14::make_unique<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
-	smoother->initialize(mg_matrices,Smoother::AdditionalData(fe.degree == 1 ? 1.0 : 0.75));
+        smoother->initialize(mg_matrices,Smoother::AdditionalData(fe.degree == 1 ? 1.0 : 0.75));
         smoother->set_steps(2);
-	return smoother;
+        return smoother;
     }
     else if (settings.smoother_type == "jacobi")
     {
@@ -912,33 +822,28 @@ AdvectionProblem<dim>::create_smoother ()
             smoother_data[level].relaxation = 1.0;
             smoother_data[level].inversion = PreconditionBlockBase<double>::svd;
 
+            std::vector<unsigned int> ordered_indices;
             if (settings.dof_renum == "downstream")
-            {
-                const AdvectionField<dim>   advection_field;
-                std::vector<unsigned int> ordered_indices =
-                        create_downstream_order(dof_handler,
-                                                advection_field.value(triangulation.begin()->center()),
-                                                level);
-                smoother_data[level].order = std::vector<std::vector<unsigned int> > (1, ordered_indices);
-            }
+                ordered_indices = create_downstream_order(dof_handler,
+                                                          advection_dir,
+                                                          level);
             else if (settings.dof_renum == "upstream")
-            {
-                const AdvectionField<dim>   advection_field;
-                std::vector<unsigned int> ordered_indices =
-                        create_downstream_order(dof_handler,
-                                                -1.0*advection_field.value(triangulation.begin()->center()),
-                                                level);
-                smoother_data[level].order = std::vector<std::vector<unsigned int> > (1, ordered_indices);
-            }
+                ordered_indices = create_downstream_order(dof_handler,
+                                                          -1.0*advection_dir,
+                                                          level);
             else if (settings.dof_renum == "random")
+                ordered_indices = create_random_order(dof_handler, level);
+            else if (settings.dof_renum == "none")
             {
-                std::vector<unsigned int> ordered_indices =
-                        create_random_order(dof_handler, level);
-                smoother_data[level].order = std::vector<std::vector<unsigned int> > (1, ordered_indices);
+                //Do nothing
             }
+            else
+                AssertThrow(false, ExcNotImplemented());
+
+            smoother_data[level].order = std::vector<std::vector<unsigned int> > (1, ordered_indices);
         }
 
-	auto smoother = std_cxx14::make_unique<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
+        auto smoother = std_cxx14::make_unique<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
         smoother->initialize(mg_matrices, smoother_data);
         smoother->set_steps(1);
         return smoother;
@@ -957,53 +862,46 @@ AdvectionProblem<dim>::create_smoother ()
             smoother_data[level].relaxation = 0.25;
             smoother_data[level].inversion = PreconditionBlockBase<double>::svd;
 
+            std::vector<unsigned int> ordered_indices;
             if (settings.dof_renum == "downstream")
-            {
-                const AdvectionField<dim>   advection_field;
-                std::vector<unsigned int> ordered_indices =
-                        create_downstream_order(dof_handler,
-                                                advection_field.value(triangulation.begin()->center()),
-                                                level);
-                smoother_data[level].order = std::vector<std::vector<unsigned int> > (1, ordered_indices);
-            }
+                ordered_indices = create_downstream_order(dof_handler,
+                                                          advection_dir,
+                                                          level);
             else if (settings.dof_renum == "upstream")
-            {
-                const AdvectionField<dim>   advection_field;
-                std::vector<unsigned int> ordered_indices =
-                        create_downstream_order(dof_handler,
-                                                -1.0*advection_field.value(triangulation.begin()->center()),
-                                                level);
-                smoother_data[level].order = std::vector<std::vector<unsigned int> > (1, ordered_indices);
-            }
+                ordered_indices = create_downstream_order(dof_handler,
+                                                          -1.0*advection_dir,
+                                                          level);
             else if (settings.dof_renum == "random")
+                ordered_indices = create_random_order(dof_handler, level);
+            else if (settings.dof_renum == "none")
             {
-                std::vector<unsigned int> ordered_indices =
-                        create_random_order(dof_handler, level);
-                smoother_data[level].order = std::vector<std::vector<unsigned int> > (1, ordered_indices);
+                //Do nothing
             }
+            else
+                AssertThrow(false, ExcNotImplemented());
+
+            smoother_data[level].order = std::vector<std::vector<unsigned int> > (1, ordered_indices);
         }
 
-	auto smoother = std_cxx14::make_unique<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
+        auto smoother = std_cxx14::make_unique<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
         smoother->initialize(mg_matrices, smoother_data);
         smoother->set_steps(2);
         return smoother;
     }
     else
-      AssertThrow(false, ExcNotImplemented());
+        AssertThrow(false, ExcNotImplemented());
 }
 
-  
+
 template <int dim>
 void AdvectionProblem<dim>::solve ()
 {
     Timer time;
 
-    double solve_tol = 1e-8*system_rhs.l2_norm();
-    unsigned int max_iters = 200;
+    const double solve_tol = 1e-8*system_rhs.l2_norm();
+    const unsigned int max_iters = 200;
     SolverControl solver_control (max_iters, solve_tol, true, true);
     solver_control.enable_history_data();
-
-
 
     typedef MGTransferPrebuilt<Vector<double> > Transfer;
     Transfer mg_transfer(mg_constrained_dofs);
@@ -1040,7 +938,7 @@ void AdvectionProblem<dim>::solve ()
     time.stop();
 
     std::cout << "          converged in " << solver_control.last_step() << " iterations"
-	      << " in " << time.last_wall_time()
+              << " in " << time.last_wall_time()
               << " seconds " << std::endl;
 
     constraints.distribute (solution);
@@ -1048,7 +946,6 @@ void AdvectionProblem<dim>::solve ()
 
 
 
-// Just for pictures
 template <int dim>
 void AdvectionProblem<dim>::output_results (const unsigned int cycle) const
 {
@@ -1056,43 +953,47 @@ void AdvectionProblem<dim>::output_results (const unsigned int cycle) const
     data_out.attach_dof_handler (dof_handler);
     data_out.add_data_vector (solution, "solution");
 
+    // Here we generate an index for each cell to visualize the ordering used
+    // by the smoothers. Note that we do this only for the active cells
+    // instead of the levels, where the smoothers are actually used. For the
+    // point smoothers we renumber DoFs instead of cells, so this is only an
+    // approximation of what happens in reality. Finally, the random ordering
+    // is not the random ordering we actually use (see create_smoother() for
+    // that).
     Vector<double> cell_indices (triangulation.n_active_cells());
+    std::vector<unsigned int> ordered_indices;
     if (settings.dof_renum == "downstream")
     {
-        const AdvectionField<dim>   advection_field;
-        std::vector<unsigned int> ordered_indices =
-                create_downstream_order(dof_handler,
-                                        advection_field.value(triangulation.begin_active()->center()));
+        ordered_indices = create_downstream_order(dof_handler,
+                                                  advection_dir);
         for (unsigned int i=0; i<ordered_indices.size(); ++i)
             cell_indices(ordered_indices[i]) = i;
     }
     else if (settings.dof_renum == "upstream")
     {
-        const AdvectionField<dim>   advection_field;
-        std::vector<unsigned int> ordered_indices =
-                create_downstream_order(dof_handler,
-                                        -1.0*advection_field.value(triangulation.begin_active()->center()));
+        ordered_indices = create_downstream_order(dof_handler,
+                                                  -1.0*advection_dir);
         for (unsigned int i=0; i<ordered_indices.size(); ++i)
             cell_indices(ordered_indices[i]) = i;
     }
-    else if (settings.dof_renum == "no")
+    else if (settings.dof_renum == "random")
+    {
+        ordered_indices = create_random_order(dof_handler);
+        for (unsigned int i=0; i<ordered_indices.size(); ++i)
+            cell_indices(ordered_indices[i]) = i;
+    }
+    else if (settings.dof_renum == "none")
     {
         typename DoFHandler<dim>::active_cell_iterator
                 cell=dof_handler.begin_active(),
                 endc=dof_handler.end();
         for (; cell!=endc; ++cell)
-        {
             cell_indices(cell->index()) = cell->index();
-        }
     }
-    else if (settings.dof_renum == "random")
-    {
-        std::vector<unsigned int> ordered_indices =
-                create_random_order(dof_handler);
-        for (unsigned int i=0; i<ordered_indices.size(); ++i)
-            cell_indices(ordered_indices[i]) = i;
-    }
-    data_out.add_data_vector (cell_indices, "cell_indx");
+    else
+        AssertThrow(false, ExcNotImplemented());
+
+    data_out.add_data_vector (cell_indices, "cell_index");
 
     data_out.build_patches ();
     {
@@ -1115,13 +1016,13 @@ void AdvectionProblem<dim>::run ()
 
         if (cycle == 0)
         {
-            GridGenerator::hyper_cube_with_cylindrical_hole	(triangulation,0.3,1.0,
+            GridGenerator::hyper_cube_with_cylindrical_hole (triangulation,0.3,1.0,
                                                              0.5,1,false);
             static const SphericalManifold<dim> manifold_description(Point<dim>(0,0));
             triangulation.set_manifold (1, manifold_description);
         }
 
-	triangulation.refine_global();
+        triangulation.refine_global();
 
         setup_system ();
 
