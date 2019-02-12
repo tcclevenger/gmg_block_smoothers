@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------------
  *
- * Copyright (C) 2000 - 2017 by the deal.II authors
+ * Copyright (C) 2018 - 2019 by the deal.II authors
  *
  * This file is part of the deal.II library.
  *
@@ -51,7 +51,7 @@
 #include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/data_out.h>
 #include <deal.II/fe/fe_q.h>
-#include<deal.II/fe/mapping_q.h>
+#include <deal.II/fe/mapping_q.h>
 #include <deal.II/grid/grid_out.h>
 
 #include <deal.II/multigrid/mg_constrained_dofs.h>
@@ -142,7 +142,8 @@ Settings::try_parse(const std::string &prm_filename)
                       "With streamline diffusion: true|false");
     prm.declare_entry("output", "true",
                       Patterns::Bool(),
-                      "Output: true|false");
+                      "Generate graphical output: true|false");
+
     try
     {
         prm.parse_input(prm_filename);
@@ -1119,14 +1120,9 @@ void AdvectionProblem<dim>::run ()
                                                              0.5,1,false);
             static const SphericalManifold<dim> manifold_description(Point<dim>(0,0));
             triangulation.set_manifold (1, manifold_description);
-
-            triangulation.refine_global (1);
-
         }
-        else
-        {
-            triangulation.refine_global();
-        }
+
+	triangulation.refine_global();
 
         setup_system ();
 
