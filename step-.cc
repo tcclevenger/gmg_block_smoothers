@@ -123,7 +123,8 @@ struct Settings
     bool with_sd;
     bool output;
 };
-bool
+
+  bool
 Settings::try_parse(const std::string &prm_filename)
 {
     ParameterHandler prm;
@@ -591,25 +592,13 @@ AdvectionProblem<dim>::AdvectionProblem (Settings settings)
 template <int dim>
 void AdvectionProblem<dim>::setup_system ()
 {
+    const unsigned int n_levels = triangulation.n_levels();
+
     dof_handler.distribute_dofs (fe);
 
-    // Could renumber, but doesn't matter
-//    if (settings.dof_renum == "random")
-//    {
-//        if (settings.smoother_type =="sor" ||
-//                settings.smoother_type =="jacobi")
-//            Assert(false,ExcMessage("Random renumbering for point-smoothers not yet implemented."));
-//    }
-//    else if (settings.dof_renum == "downstream")
-//    {
-//        const AdvectionField<dim> w;
-//        DoFRenumbering::downstream(dof_handler,w.value(Point<dim>()));
-//    }
-//    else if (settings.dof_renum == "upstream")
-//    {
-//        const AdvectionField<dim> w;
-//        DoFRenumbering::downstream(dof_handler,-1.0*w.value(Point<dim>()));
-//    }
+    // We could renumber the active dofs with DoFRenumbering::downstream()
+    // here, but the smoothers only act on multigrid levels and as such, this
+    // won't matter.
 
     solution.reinit (dof_handler.n_dofs());
     system_rhs.reinit (dof_handler.n_dofs());
@@ -642,36 +631,33 @@ void AdvectionProblem<dim>::setup_system ()
     // Setup GMG DoFs
     dof_handler.distribute_mg_dofs ();
 
-    for (unsigned int level=0; level < triangulation.n_levels(); ++level)
-    {
-        if (settings.dof_renum == "random")
+    // Renumber DoFs on each level in downstream or upstream direction if
+    // needed. This is only necessary for point smoothers (SOR and Jacobi) as
+    // the block smoothers operate on cells (see create_smoother()):
+    if (settings.smoother_type == "sor" || settings.smoother_type == "jacobi")
+      {
+	if (settings.dof_renum == "downstream" || settings.dof_renum == "upstream") 
         {
-            if (settings.smoother_type =="sor" ||
-                    settings.smoother_type =="jacobi")
-                Assert(false,ExcMessage("Random renumbering for point-smoothers not yet implemented."));
-        }
-        else if (settings.dof_renum == "downstream")
-        {
-            const AdvectionField<dim> w;
-            DoFRenumbering::downstream(dof_handler,level,w.value(Point<dim>()));
-        }
-        else if (settings.dof_renum == "upstream")
-        {
-            const AdvectionField<dim> w;
-            DoFRenumbering::downstream(dof_handler,level,-1.0*w.value(Point<dim>()));
-        }
-    }
-
+	  AdvectionField<dim> w;
+	  const Tensor<1,dim> dir =
+	    (settings.dof_renum == "upstream" ? -1.0 : 1.0) * w.value(Point<dim>());
+	  
+	  for (unsigned int level=0; level < n_levels; ++level)
+	    DoFRenumbering::downstream(dof_handler, level, dir);
+	}
+	else if (settings.dof_renum == "random")
+	  {
+	    Assert(false, ExcMessage("Random renumbering for point-smoothers not yet implemented."));
+	  }
+	else
+	  Assert(false, ExcNotImplemented());
+      }
+    
     mg_constrained_dofs.clear();
     mg_constrained_dofs.initialize(dof_handler);
 
-    std::set<types::boundary_id>  dirichlet_boundary_ids;
-    dirichlet_boundary_ids.insert(0);
-    dirichlet_boundary_ids.insert(1);
-
+    std::set<types::boundary_id>  dirichlet_boundary_ids = {0,1};
     mg_constrained_dofs.make_zero_boundary_constraints(dof_handler, dirichlet_boundary_ids);
-
-    const unsigned int n_levels = triangulation.n_levels();
 
     mg_matrices.resize(0, n_levels-1);
     mg_matrices.clear_elements ();
@@ -742,13 +728,12 @@ AdvectionProblem<dim>::assemble_cell(const IteratorType &cell,
     right_hand_side.value_list (scratch_data.fe_values.get_quadrature_points(),
                                 rhs_values);
 
-    double delta = 0.0;
-    if (settings.with_sd)
-        delta = delta_value(cell->diameter(),
+    const double delta =
+      settings.with_sd ? (delta_value(cell->diameter(),
                             epsilon.value(cell->center()),
                             advection_field.value(cell->center()),
-                            settings.fe_degree);
-
+				      settings.fe_degree))
+       : 0.0;
 
     for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
         for (unsigned int i = 0; i < dofs_per_cell; ++i)
