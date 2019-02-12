@@ -513,6 +513,7 @@ double delta_value (const double hk,
                     const Tensor<1,dim> dir,
                     const double pk)
 {
+  // TODO: add citation for this?
     double Peclet = dir.norm()*hk/(2.0*eps*pk);
     double coth = (1.0+std::exp(-2.0*Peclet))/(1.0-std::exp(-2.0*Peclet));
 
