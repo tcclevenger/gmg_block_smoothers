@@ -513,7 +513,6 @@ double delta_value (const double hk,
 {
     double Peclet = dir.norm()*hk/(2.0*eps*pk);
     double coth = (1.0+std::exp(-2.0*Peclet))/(1.0-std::exp(-2.0*Peclet));
-    //std::cosh(Peclet)/std::sinh(Peclet); // TODO: what is this?
 
     return hk/(2.0*dir.norm()*pk)*(coth - 1.0/Peclet);
 }
@@ -593,22 +592,23 @@ void AdvectionProblem<dim>::setup_system ()
 {
     dof_handler.distribute_dofs (fe);
 
-    if (settings.dof_renum == "random")
-    {
-        if (settings.smoother_type =="sor" ||
-                settings.smoother_type =="jacobi")
-            Assert(false,ExcMessage("Random renumbering for point-smoothers not yet implemented."));
-    }
-    else if (settings.dof_renum == "downstream")
-    {
-        const AdvectionField<dim> w;
-        DoFRenumbering::downstream(dof_handler,w.value(Point<dim>()));
-    }
-    else if (settings.dof_renum == "upstream")
-    {
-        const AdvectionField<dim> w;
-        DoFRenumbering::downstream(dof_handler,-1.0*w.value(Point<dim>()));
-    }
+    // Could renumber, but doesn't matter
+//    if (settings.dof_renum == "random")
+//    {
+//        if (settings.smoother_type =="sor" ||
+//                settings.smoother_type =="jacobi")
+//            Assert(false,ExcMessage("Random renumbering for point-smoothers not yet implemented."));
+//    }
+//    else if (settings.dof_renum == "downstream")
+//    {
+//        const AdvectionField<dim> w;
+//        DoFRenumbering::downstream(dof_handler,w.value(Point<dim>()));
+//    }
+//    else if (settings.dof_renum == "upstream")
+//    {
+//        const AdvectionField<dim> w;
+//        DoFRenumbering::downstream(dof_handler,-1.0*w.value(Point<dim>()));
+//    }
 
     solution.reinit (dof_handler.n_dofs());
     system_rhs.reinit (dof_handler.n_dofs());
@@ -1048,7 +1048,7 @@ void AdvectionProblem<dim>::solve ()
 
 
 
-
+// Just for pictures
 template <int dim>
 void AdvectionProblem<dim>::output_results (const unsigned int cycle) const
 {
