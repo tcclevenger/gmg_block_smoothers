@@ -567,8 +567,6 @@ private:
     MGLevelObject<SparseMatrix<double> > mg_interface_in;
     MGLevelObject<SparseMatrix<double> > mg_interface_out;
 
-    MGLevelObject<AffineConstraints<double>> mg_constraints;
-
     MGConstrainedDoFs                    mg_constrained_dofs;
 
     Settings settings;
@@ -1110,7 +1108,7 @@ void AdvectionProblem<dim>::run ()
 
         if (cycle == 0)
         {
-            GridGenerator::hyper_cube_with_cylindrical_hole	(triangulation,0.3,1.0,
+            GridGenerator::hyper_cube_with_cylindrical_hole (triangulation,0.3,1.0,
                                                              0.5,1,false);
             static const SphericalManifold<dim> manifold_description(Point<dim>(0,0));
             triangulation.set_manifold (1, manifold_description);
