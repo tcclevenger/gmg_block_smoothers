@@ -921,6 +921,8 @@ AdvectionProblem<dim>::create_smoother ()
                         create_random_order(dof_handler, level);
                 smoother_data[level].order = std::vector<std::vector<unsigned int> > (1, ordered_indices);
             }
+	    else
+	      AssertThrow(false, ExcNotImplemented());
         }
 
 	auto smoother = std_cxx14::make_unique<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
@@ -966,6 +968,9 @@ AdvectionProblem<dim>::create_smoother ()
                         create_random_order(dof_handler, level);
                 smoother_data[level].order = std::vector<std::vector<unsigned int> > (1, ordered_indices);
             }
+	    else
+	      AssertThrow(false, ExcNotImplemented());
+
         }
 
 	auto smoother = std_cxx14::make_unique<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
@@ -983,12 +988,10 @@ void AdvectionProblem<dim>::solve ()
 {
     Timer time;
 
-    double solve_tol = 1e-8*system_rhs.l2_norm();
-    unsigned int max_iters = 200;
+    const double solve_tol = 1e-8*system_rhs.l2_norm();
+    const unsigned int max_iters = 200;
     SolverControl solver_control (max_iters, solve_tol, true, true);
     solver_control.enable_history_data();
-
-
 
     typedef MGTransferPrebuilt<Vector<double> > Transfer;
     Transfer mg_transfer(mg_constrained_dofs);
@@ -1033,7 +1036,6 @@ void AdvectionProblem<dim>::solve ()
 
 
 
-// Just for pictures
 template <int dim>
 void AdvectionProblem<dim>::output_results (const unsigned int cycle) const
 {
@@ -1041,6 +1043,13 @@ void AdvectionProblem<dim>::output_results (const unsigned int cycle) const
     data_out.attach_dof_handler (dof_handler);
     data_out.add_data_vector (solution, "solution");
 
+    // Here we generate an index for each cell to visualize the ordering used
+    // by the smoothers. Note that we do this only for the active cells
+    // instead of the levels, where the smoothers are actually used. For the
+    // point smoothers we renumber DoFs instead of cells, so this is only an
+    // approximation of what happens in reality. Finally, the random ordering
+    // is not the random ordering we actually use (see create_smoother() for
+    // that).
     Vector<double> cell_indices (triangulation.n_active_cells());
     if (settings.dof_renum == "downstream")
     {
@@ -1077,7 +1086,7 @@ void AdvectionProblem<dim>::output_results (const unsigned int cycle) const
         for (unsigned int i=0; i<ordered_indices.size(); ++i)
             cell_indices(ordered_indices[i]) = i;
     }
-    data_out.add_data_vector (cell_indices, "cell_indx");
+    data_out.add_data_vector (cell_indices, "cell_index");
 
     data_out.build_patches ();
     {
