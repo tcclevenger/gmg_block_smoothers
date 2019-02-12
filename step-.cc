@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------------
  *
- * Copyright (C) 2000 - 2017 by the deal.II authors
+ * Copyright (C) 2018 - 2019 by the deal.II authors
  *
  * This file is part of the deal.II library.
  *
@@ -19,8 +19,7 @@
  */
 
 #include <deal.II/base/work_stream.h>
-#include <deal.II/meshworker/mesh_loop.h>
-
+#include <deal.II/base/std_cxx14/memory.h>
 #include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/function.h>
 #include <deal.II/base/logstream.h>
@@ -50,8 +49,9 @@
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/data_out.h>
+#include <deal.II/meshworker/mesh_loop.h>
 #include <deal.II/fe/fe_q.h>
-#include<deal.II/fe/mapping_q.h>
+#include <deal.II/fe/mapping_q.h>
 #include <deal.II/grid/grid_out.h>
 
 #include <deal.II/multigrid/mg_constrained_dofs.h>
@@ -142,7 +142,8 @@ Settings::try_parse(const std::string &prm_filename)
                       "With streamline diffusion: true|false");
     prm.declare_entry("output", "true",
                       Patterns::Bool(),
-                      "Output: true|false");
+                      "Generate graphical output: true|false");
+
     try
     {
         prm.parse_input(prm_filename);
@@ -536,7 +537,7 @@ private:
     void
     assemble_system_and_multigrid();
 
-    std::shared_ptr<MGSmoother<Vector<double>>> create_smoother ();
+    std::unique_ptr<MGSmoother<Vector<double>>> create_smoother ();
 
     void solve ();
     void refine_grid ();
@@ -876,7 +877,7 @@ AdvectionProblem<dim>::assemble_system_and_multigrid()
 
 
 template <int dim>
-std::shared_ptr<MGSmoother<Vector<double>>>
+std::unique_ptr<MGSmoother<Vector<double>>>
 AdvectionProblem<dim>::create_smoother ()
 {
     
@@ -884,7 +885,7 @@ AdvectionProblem<dim>::create_smoother ()
     {
         typedef PreconditionSOR<SparseMatrix<double> > Smoother;
 		
-        auto smoother = std::make_shared<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
+        auto smoother = std_cxx14::make_unique<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
 	smoother->initialize(mg_matrices,Smoother::AdditionalData(fe.degree == 1 ? 1.0 : 0.75));
         smoother->set_steps(2);
 	return smoother;
@@ -892,7 +893,7 @@ AdvectionProblem<dim>::create_smoother ()
     else if (settings.smoother_type == "jacobi")
     {
         typedef PreconditionJacobi<SparseMatrix<double> > Smoother;
-        auto smoother = std::make_shared<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
+        auto smoother = std_cxx14::make_unique<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
         smoother->initialize(mg_matrices, Smoother::AdditionalData(fe.degree == 1 ? 0.6667 : 0.47));
         smoother->set_steps(4);
         return smoother;
@@ -937,8 +938,7 @@ AdvectionProblem<dim>::create_smoother ()
             }
         }
 
-	auto smoother = std::make_shared<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
-	
+	auto smoother = std_cxx14::make_unique<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
         smoother->initialize(mg_matrices, smoother_data);
         smoother->set_steps(1);
         return smoother;
@@ -983,7 +983,7 @@ AdvectionProblem<dim>::create_smoother ()
             }
         }
 
-	auto smoother = std::make_shared<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
+	auto smoother = std_cxx14::make_unique<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
         smoother->initialize(mg_matrices, smoother_data);
         smoother->set_steps(2);
         return smoother;
@@ -1014,7 +1014,7 @@ void AdvectionProblem<dim>::solve ()
     MGCoarseGridHouseholder<double, Vector<double> > coarse_grid_solver;
     coarse_grid_solver.initialize (coarse_matrix);
 
-    std::shared_ptr<MGSmoother<Vector<double>>> mg_smoother = create_smoother();
+    std::unique_ptr<MGSmoother<Vector<double>>> mg_smoother = create_smoother();
 
     mg::Matrix<Vector<double> > mg_matrix(mg_matrices);
     mg::Matrix<Vector<double> > mg_interface_matrix_in(mg_interface_in);
@@ -1119,14 +1119,9 @@ void AdvectionProblem<dim>::run ()
                                                              0.5,1,false);
             static const SphericalManifold<dim> manifold_description(Point<dim>(0,0));
             triangulation.set_manifold (1, manifold_description);
-
-            triangulation.refine_global (1);
-
         }
-        else
-        {
-            triangulation.refine_global();
-        }
+
+	triangulation.refine_global();
 
         setup_system ();
 
