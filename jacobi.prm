@@ -2,10 +2,10 @@
 set fe degree       =  1 #{1 | 3}
 
 # Smoother Type: sor|jacobi|block sor|block jacobi
-set smoother or solver type         = jacobi
+set smoother type         = jacobi
 
 # Dof renumbering: no|random|downstream|upstream
-set dof renumbering  = downstream
+set dof renumbering  = random
 
 # With streamline diffusion: true|false
 set with sd         = true

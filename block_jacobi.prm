@@ -2,7 +2,7 @@
 set fe degree       =  1 #{1 | 3}
 
 # Smoother Type: sor|jacobi|block sor|block jacobi
-set smoother or solver type         = block jacobi
+set smoother type         = block jacobi
 
 # Dof renumbering: no|random|downstream|upstream
 set dof renumbering  = downstream
