@@ -489,7 +489,7 @@ private:
 
     Settings settings;
     const double epsilon;
-    Tensor<1,dim> advection_dir;
+    Tensor<1,dim> advection_direction;
 };
 
 
@@ -506,15 +506,12 @@ AdvectionProblem<dim>::AdvectionProblem (Settings settings)
       epsilon(0.005)
 {
     // Set Advection direction
-    advection_dir[0] = -std::sin(numbers::PI/6.0);
+    advection_direction[0] = -std::sin(numbers::PI/6.0);
     if (dim > 1)
-    {
-        advection_dir[1] = std::cos(numbers::PI/6.0);
-        if (dim > 2)
-            advection_dir[2] = std::sin(numbers::PI/6.0);
-    }
+      advection_direction[1] = std::cos(numbers::PI/6.0);
+    if (dim > 2)
+      advection_direction[2] = std::sin(numbers::PI/6.0);
 }
-
 
 
 
@@ -527,7 +524,8 @@ void AdvectionProblem<dim>::setup_system ()
 
     // We could renumber the active dofs with DoFRenumbering::downstream()
     // here, but the smoothers only act on multigrid levels and as such, this
-    // won't matter.
+    // won't matter. Instead, we will renumber the DoFs on each multigrid
+    // level below.
 
     solution.reinit (dof_handler.n_dofs());
     system_rhs.reinit (dof_handler.n_dofs());
@@ -567,13 +565,13 @@ void AdvectionProblem<dim>::setup_system ()
     {
         if (settings.dof_renum == "downstream" || settings.dof_renum == "upstream")
         {
-            const Tensor<1,dim> dir =
-                    (settings.dof_renum == "upstream" ? -1.0 : 1.0) * advection_dir;
+            const Tensor<1,dim> direction =
+                    (settings.dof_renum == "upstream" ? -1.0 : 1.0) * advection_direction;
 
             for (unsigned int level=0; level < n_levels; ++level)
                 DoFRenumbering::downstream(dof_handler,
                                            level,
-                                           dir,
+                                           direction,
                                            /*dof_wise_renumbering = */ false);
         }
         else if (settings.dof_renum == "random")
@@ -654,10 +652,10 @@ AdvectionProblem<dim>::assemble_cell(const IteratorType &cell,
                                 rhs_values);
 
     const double delta =
-            settings.with_sd ? (delta_value(cell->diameter(),
+            settings.with_sd ? delta_value(cell->diameter(),
                                             epsilon,
-                                            advection_dir,
-                                            settings.fe_degree))
+                                            advection_direction,
+                                            settings.fe_degree)
                              : 0.0;
 
     for (unsigned int q_point = 0; q_point < n_q_points; ++q_point)
@@ -671,18 +669,18 @@ AdvectionProblem<dim>::assemble_cell(const IteratorType &cell,
                          scratch_data.fe_values.shape_grad(i, q_point) *
                          scratch_data.fe_values.JxW(q_point))
                         +
-                        ((advection_dir*scratch_data.fe_values.shape_grad(j,q_point))*
+                        ((advection_direction * scratch_data.fe_values.shape_grad(j,q_point))*
                          scratch_data.fe_values.shape_value(i,q_point))
                         *scratch_data.fe_values.JxW(q_point);
 
                 if (settings.with_sd)
                     copy_data.cell_matrix(i,j) += delta*
-                            (advection_dir*scratch_data.fe_values.shape_grad(j,q_point))*
-                            (advection_dir*scratch_data.fe_values.shape_grad(i,q_point))
+                            (advection_direction*scratch_data.fe_values.shape_grad(j,q_point))*
+                            (advection_direction*scratch_data.fe_values.shape_grad(i,q_point))
                             * scratch_data.fe_values.JxW(q_point)
                             -
                             delta*epsilon*trace(scratch_data.fe_values.shape_hessian(j,q_point))*
-                            (advection_dir*scratch_data.fe_values.shape_grad(i,q_point))
+                            (advection_direction*scratch_data.fe_values.shape_grad(i,q_point))
                             * scratch_data.fe_values.JxW(q_point);
             }
             if (!cell->is_level_cell())
@@ -693,7 +691,7 @@ AdvectionProblem<dim>::assemble_cell(const IteratorType &cell,
                 if (settings.with_sd)
                     copy_data.cell_rhs(i) += delta*
                             rhs_values[q_point]*
-                            advection_dir*scratch_data.fe_values.shape_grad(i,q_point)
+                            advection_direction*scratch_data.fe_values.shape_grad(i,q_point)
                             *scratch_data.fe_values.JxW (q_point);
             }
         }
@@ -825,11 +823,11 @@ AdvectionProblem<dim>::create_smoother ()
             std::vector<unsigned int> ordered_indices;
             if (settings.dof_renum == "downstream")
                 ordered_indices = create_downstream_order(dof_handler,
-                                                          advection_dir,
+                                                          advection_direction,
                                                           level);
             else if (settings.dof_renum == "upstream")
                 ordered_indices = create_downstream_order(dof_handler,
-                                                          -1.0*advection_dir,
+                                                          -1.0*advection_direction,
                                                           level);
             else if (settings.dof_renum == "random")
                 ordered_indices = create_random_order(dof_handler, level);
@@ -865,11 +863,11 @@ AdvectionProblem<dim>::create_smoother ()
             std::vector<unsigned int> ordered_indices;
             if (settings.dof_renum == "downstream")
                 ordered_indices = create_downstream_order(dof_handler,
-                                                          advection_dir,
+                                                          advection_direction,
                                                           level);
             else if (settings.dof_renum == "upstream")
                 ordered_indices = create_downstream_order(dof_handler,
-                                                          -1.0*advection_dir,
+                                                          -1.0*advection_direction,
                                                           level);
             else if (settings.dof_renum == "random")
                 ordered_indices = create_random_order(dof_handler, level);
@@ -960,50 +958,49 @@ void AdvectionProblem<dim>::output_results (const unsigned int cycle) const
     // approximation of what happens in reality. Finally, the random ordering
     // is not the random ordering we actually use (see create_smoother() for
     // that).
-    Vector<double> cell_indices (triangulation.n_active_cells());
-    std::vector<unsigned int> ordered_indices;
-    if (settings.dof_renum == "downstream")
+    const unsigned int n_active_cells = triangulation.n_active_cells();
+    Vector<double> cell_indices (n_active_cells);
+
     {
-        ordered_indices = create_downstream_order(dof_handler,
-                                                  advection_dir);
-        for (unsigned int i=0; i<ordered_indices.size(); ++i)
-            cell_indices(ordered_indices[i]) = i;
-    }
-    else if (settings.dof_renum == "upstream")
-    {
-        ordered_indices = create_downstream_order(dof_handler,
-                                                  -1.0*advection_dir);
-        for (unsigned int i=0; i<ordered_indices.size(); ++i)
-            cell_indices(ordered_indices[i]) = i;
-    }
-    else if (settings.dof_renum == "random")
-    {
-        ordered_indices = create_random_order(dof_handler);
-        for (unsigned int i=0; i<ordered_indices.size(); ++i)
-            cell_indices(ordered_indices[i]) = i;
-    }
-    else if (settings.dof_renum == "none")
-    {
-        typename DoFHandler<dim>::active_cell_iterator
-                cell=dof_handler.begin_active(),
-                endc=dof_handler.end();
-        for (; cell!=endc; ++cell)
-            cell_indices(cell->index()) = cell->index();
-    }
-    else
+      // First generate a permutation vector for the cell indices:
+      std::vector<unsigned int> ordered_indices;
+      if (settings.dof_renum == "downstream")
+	{
+	  ordered_indices = create_downstream_order(dof_handler,
+						    advection_direction);
+	}
+      else if (settings.dof_renum == "upstream")
+	{
+	  ordered_indices = create_downstream_order(dof_handler,
+						    -1.0*advection_direction);
+	}
+      else if (settings.dof_renum == "random")
+	{
+	  ordered_indices = create_random_order(dof_handler);
+	}
+      else if (settings.dof_renum == "none")
+	{
+	  ordered_indices.resize(n_active_cells);
+	  for (unsigned int i=0;i<n_active_cells;++i)
+	    ordered_indices[i]=i;
+	}
+      else
         AssertThrow(false, ExcNotImplemented());
+
+      // Then copy the permutation in ordered_indices into an output vector:
+      for (unsigned int i=0; i<n_active_cells; ++i)
+	cell_indices(ordered_indices[i]) = static_cast<double>(i);
+    }
 
     data_out.add_data_vector (cell_indices, "cell_index");
 
     data_out.build_patches ();
-    {
-        std::ostringstream filename;
-        filename << "solution-"
-                 << cycle
-                 << ".vtu";
-        std::ofstream output (filename.str().c_str());
-        data_out.write_vtu (output);
-    }
+
+    std::string filename = "solution-"
+			   + Utilities::int_to_string(cycle)
+			   + ".vtu";
+    std::ofstream output (filename.c_str());
+    data_out.write_vtu (output);
 }
 
 
