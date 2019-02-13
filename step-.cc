@@ -18,6 +18,7 @@
  *         Timo Heister, University of Utah
  */
 
+#include <deal.II/base/tensor_function.h>
 #include <deal.II/base/work_stream.h>
 #include <deal.II/base/std_cxx14/memory.h>
 #include <deal.II/base/quadrature_lib.h>
@@ -49,6 +50,7 @@
 #include <deal.II/numerics/vector_tools.h>
 #include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/data_out.h>
+#include <deal.II/numerics/error_estimator.h>
 #include <deal.II/meshworker/mesh_loop.h>
 #include <deal.II/fe/fe_q.h>
 #include <deal.II/fe/mapping_q.h>
@@ -63,9 +65,7 @@
 #include <deal.II/multigrid/mg_smoother.h>
 #include <deal.II/multigrid/mg_matrix.h>
 
-#include <deal.II/base/tensor_function.h>
 
-#include <deal.II/numerics/error_estimator.h>
 
 #include <fstream>
 #include <iostream>
