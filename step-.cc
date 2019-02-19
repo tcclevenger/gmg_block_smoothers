@@ -8,16 +8,17 @@
  * it, and/or modify it under the terms of the GNU Lesser General
  * Public License as published by the Free Software Foundation; either
  * version 2.1 of the License, or (at your option) any later version.
- * The full text of the license can be found in the file LICENSE at
- * the top level of the deal.II distribution.
+ * The full text of the license can be found in the file LICENSE.md at
+ * the top level directory of deal.II.
  *
  * ---------------------------------------------------------------------
-
  *
- * Author: Thomas Clevenger, Clemson University
- *         Timo Heister, University of Utah
+ * Authors: Thomas Clevenger, Clemson University
+ *          Timo Heister, University of Utah
  */
 
+// @note: This is work in progress and will be an example for block smoothers
+// in geometric multigrid.
 #include <deal.II/base/work_stream.h>
 #include <deal.II/base/std_cxx14/memory.h>
 #include <deal.II/base/quadrature_lib.h>
@@ -82,7 +83,6 @@ namespace Step100
 using namespace dealii;
 
 
-
 template <int dim>
 struct ScratchData
 {
@@ -124,6 +124,7 @@ struct Settings
     bool with_sd;
     bool output;
 };
+
 
 bool
 Settings::try_parse(const std::string &prm_filename)
@@ -172,6 +173,9 @@ Settings::try_parse(const std::string &prm_filename)
 }
 
 
+
+namespace
+{
 template <class Iterator, int dim>
 struct CompareDownstream
 {
@@ -198,9 +202,7 @@ private:
     const Tensor<1,dim> dir;
 };
 
-
-namespace
-{
+// Functions for creating permutation of cells for output and Block smoothers
 template <int dim>
 std::vector<unsigned int>
 create_downstream_order (const DoFHandler<dim> &dof,
@@ -323,7 +325,9 @@ create_random_order (const DoFHandler<dim> &dof)
 
 
 
-
+// RHS and boundary is an adaptation from one in
+// Finite Elements and Fast Iterative Solvers: with Applications
+// in Incompressible Fluid Dynamics
 template <int dim>
 class RightHandSide : public Function<dim>
 {
@@ -385,7 +389,6 @@ public:
 };
 
 
-
 template <int dim>
 double
 BoundaryValues<dim>::value (const Point<dim>   &p,
@@ -394,13 +397,23 @@ BoundaryValues<dim>::value (const Point<dim>   &p,
     Assert (component == 0, ExcIndexRange (component, 0, 1));
     (void)component;
 
-    if (std::fabs(p[0]*p[0] + p[1]*p[1] - 0.3*0.3) < 1e-8) //around cylinder
+    if (
+            std::fabs(p[0]*p[0] + p[1]*p[1] - 0.3*0.3) < 1e-8 //around cylinder
+            ||
+            std::fabs(p[0]+1)<1e-8 //x == -1
+            ||
+            std::fabs(p[1]-1)<1e-8 //y == 1
+            ||
+            (std::fabs(p[1]+1)<1e-8 && p[0]<0.5) //y == -1, x <= 0.5
+            )
     {
         return 0.0;
     }
-    else if (std::fabs(p[0]-1)<1e-8 // TODO: document
+    else if (
+             std::fabs(p[0]-1)<1e-8 //x = 1
              ||
-             (p[1]<0.999 && p[1]>=-std::sqrt(3)*(p[0]-0.5)-1))
+             (std::fabs(p[1]+1)<1e-8 && p[0]>=0.5) //y == -1, x > 0.5
+             )
     {
         return 1.0;
     }
@@ -431,7 +444,7 @@ double delta_value (const double hk,
                     const Tensor<1,dim> dir,
                     const double pk)
 {
-    // TODO: add citation for this?
+    // Value defined in 'On discontinuity–capturing methods for convection–diffusion equations'
     double Peclet = dir.norm()*hk/(2.0*eps*pk);
     double coth = (1.0+std::exp(-2.0*Peclet))/(1.0-std::exp(-2.0*Peclet));
 
@@ -505,7 +518,9 @@ AdvectionProblem<dim>::AdvectionProblem (Settings settings)
       settings(settings),
       epsilon(0.005)
 {
-    // Set Advection direction
+    // Set Advection direction (problem is an adaptation from one in
+    // Finite Elements and Fast Iterative Solvers: with Applications
+    // in Incompressible Fluid Dynamics)
     advection_dir[0] = -std::sin(numbers::PI/6.0);
     if (dim > 1)
     {
@@ -527,7 +542,7 @@ void AdvectionProblem<dim>::setup_system ()
 
     // We could renumber the active dofs with DoFRenumbering::downstream()
     // here, but the smoothers only act on multigrid levels and as such, this
-    // won't matter.
+    // wouldn't matter.
 
     solution.reinit (dof_handler.n_dofs());
     system_rhs.reinit (dof_handler.n_dofs());
@@ -574,14 +589,13 @@ void AdvectionProblem<dim>::setup_system ()
                 DoFRenumbering::downstream(dof_handler,
                                            level,
                                            dir,
-                                           /*dof_wise_renumbering = */ false);
+                                           /*dof_wise_renumbering = */ true);
         }
         else if (settings.dof_renum == "random")
         {
             for (unsigned int level=0; level < n_levels; ++level)
                 DoFRenumbering::random(dof_handler,
                                        level);
-            //Assert(false, ExcMessage("Random renumbering for point-smoothers not yet implemented."));
         }
         else
             Assert(false, ExcNotImplemented());
@@ -616,6 +630,8 @@ void AdvectionProblem<dim>::setup_system ()
                                        dof_handler.n_dofs(level));
             MGTools::make_interface_sparsity_pattern(dof_handler, mg_constrained_dofs, dsp, level);
             mg_interface_sparsity_patterns[level].copy_from(dsp);
+
+            // We need both interface in and out matrices since our problem is not symmetric
             mg_interface_in[level].reinit(mg_interface_sparsity_patterns[level]);
             mg_interface_out[level].reinit(mg_interface_sparsity_patterns[level]);
         }
@@ -760,7 +776,9 @@ AdvectionProblem<dim>::assemble_system_and_multigrid()
                                                                          copy_data.local_dof_indices,
                                                                          mg_matrices[copy_data.level]);
 
-        // Will require explanation.
+        // If (i,j) is an interface_out dof pair, then (j,i) is an interface_in dof pair.
+        // Note: for interface_in, we load the transpose of the interface entries, i.e.,
+        // the entry for dof pair (j,i) is stored in interface_in(i,j).
         for (unsigned int i = 0; i < copy_data.dofs_per_cell; ++i)
             for (unsigned int j = 0; j < copy_data.dofs_per_cell; ++j)
                 if (mg_constrained_dofs.is_interface_matrix_entry(copy_data.level,
@@ -796,7 +814,7 @@ AdvectionProblem<dim>::create_smoother ()
         typedef PreconditionSOR<SparseMatrix<double> > Smoother;
 
         auto smoother = std_cxx14::make_unique<MGSmootherPrecondition<SparseMatrix<double>, Smoother, Vector<double> >>();
-        smoother->initialize(mg_matrices,Smoother::AdditionalData(fe.degree == 1 ? 1.0 : 0.75));
+        smoother->initialize(mg_matrices,Smoother::AdditionalData(fe.degree == 1 ? 1.0 : 0.62));
         smoother->set_steps(2);
         return smoother;
     }

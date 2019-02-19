@@ -11,4 +11,4 @@ set dof renumbering  = downstream
 set with sd         = true
 
 # Output: true|false
-set output          = false
+set output          = true
